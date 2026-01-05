@@ -96,12 +96,12 @@ function processTemplate($content, $data = []) {
  */
 function processIfStatements($content, $data) {
     // Pattern to match if statements with negation: <!--if(!$variable)-->
-    $pattern = '/<!--\s*if\s*\(\s*!\s*\$(\w+)(?:\[([^\]]+)\])?\s*\)\s*-->(.*?)<!--\s*endif\s*-->/is';
+    $pattern = '/<!--\s*if\s*\(\s*!\s*\$(\w+)(?:\[(["\']?)([^\]]+)\2\])?\s*\)\s*-->(.*?)<!--\s*endif\s*-->/is';
     
     $content = preg_replace_callback($pattern, function($matches) use ($data) {
         $varName = $matches[1];
-        $key = isset($matches[2]) && $matches[2] !== '' ? trim($matches[2], '\'"') : null;
-        $ifContent = $matches[3];
+        $key = isset($matches[3]) && $matches[3] !== '' ? $matches[3] : null;
+        $ifContent = $matches[4];
         
         $value = null;
         $found = false;
@@ -135,7 +135,7 @@ function processIfStatements($content, $data) {
     }, $content);
     
     // Pattern to match if statements without negation: <!--if($variable)-->
-    $pattern = '/<!--\s*if\s*\(\s*\$(\w+)(?:\[([^\]]+)\])?\s*\)\s*-->(.*?)<!--\s*endif\s*-->/is';
+    $pattern = '/<!--\s*if\s*\(\s*\$(\w+)(?:\[(["\']?)([^\]]+)\2\])?\s*\)\s*-->(.*?)<!--\s*endif\s*-->/is';
     
     $content = preg_replace_callback($pattern, function($matches) use ($data) {
         $varName = $matches[1];
@@ -262,13 +262,13 @@ function processForeachLoops($content, $data) {
 
 /**
  * Process simple variables in template
- * Supports: <!--$variable--> and <!--$array[key]-->
+ * Supports: <!--$variable--> and <!--$array[key]--> and <!--$array["key"]-->
  */
 function processVariables($content, $data) {
-    // Pattern to match array access: <!--$variable[key]-->
-    $content = preg_replace_callback('/<!--\s*\$(\w+)\[([^\]]+)\]\s*-->/i', function($matches) use ($data) {
+    // Pattern to match array access: <!--$variable[key]--> or <!--$variable["key"]-->
+    $content = preg_replace_callback('/<!--\s*\$(\w+)\[(["\']?)([^\]]+)\2\]\s*-->/i', function($matches) use ($data) {
         $varName = $matches[1];
-        $key = trim($matches[2], '\'"'); // Remove quotes if present
+        $key = $matches[3]; // Key without quotes
         
         if (isset($data[$varName]) && is_array($data[$varName]) && isset($data[$varName][$key])) {
             return htmlspecialchars($data[$varName][$key], ENT_QUOTES, 'UTF-8');
@@ -412,7 +412,7 @@ function processIncludesInLoop($content, $loopData) {
         $mergedData = array_merge($includeParams, $loopData);
         
         // Get the content directory path
-        $contentDir = dirname(dirname(__FILE__)) . '/content';
+        $contentDir = dirname(dirname(__FILE__)) . '/views';
         
         // Build the full path
         $fullPath = $contentDir . '/' . $includePath;
@@ -457,7 +457,7 @@ function process() {
     }
 
     // Define the content directory (relative to this file)
-    $contentDir = dirname(__DIR__) . '/content';
+    $contentDir = dirname(__DIR__) . '/views';
     $actionsDir = dirname(__DIR__) . '/actions';
 
     // Check if request is for JSON response
@@ -471,7 +471,6 @@ function process() {
 
     // Build the file path
     $filePath = $contentDir . '/' . $basePath . '.html';
-
     // Check if the file exists
     if (file_exists($filePath) && is_file($filePath)) {
         // Execute action if exists and get returned data
