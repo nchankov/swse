@@ -38,11 +38,18 @@ function executeAction($path, $actionsDir) {
     
     // Get the request method and build the method name
     $requestMethod = strtolower($_SERVER['REQUEST_METHOD']);
-    $methodName = $requestMethod . '_action';
+    $methodName = $requestMethod;
     
-    // Execute the action method if it exists and return its data
+    // Execute the action method if it exists
     if (method_exists($action, $methodName)) {
         $result = $action->$methodName();
+        // If result is an array, return it; otherwise return empty array
+        return is_array($result) ? $result : [];
+    }
+    
+    // If specific method doesn't exist, try the all() method as fallback
+    if (method_exists($action, 'all')) {
+        $result = $action->all();
         // If result is an array, return it; otherwise return empty array
         return is_array($result) ? $result : [];
     }
@@ -64,6 +71,9 @@ function serveFile($filePath, $actionData = []) {
     
     // Process CSRF tokens
     $content = processCsrfTokens($content);
+    
+    // Process flash messages
+    $content = processFlashMessages($content);
     
     // Process template variables and loops
     $content = processTemplate($content, $actionData);
@@ -361,8 +371,16 @@ function processIncludes($content, $baseDir, $data = []) {
             // Merge params with action data (action data overwrites include params - include params are defaults)
             $mergedData = array_merge($includeParams, $data);
             
-            // Build the full path relative to content directory
-            $fullPath = $baseDir . '/' . $includePath;
+            // Build the full path
+            // If path starts with /, treat as absolute from views directory
+            if (strpos($includePath, '/') === 0) {
+                // Absolute path from views directory
+                $viewsDir = dirname(dirname(__FILE__)) . '/views';
+                $fullPath = $viewsDir . $includePath;
+            } else {
+                // Relative path from current directory
+                $fullPath = $baseDir . '/' . $includePath;
+            }
             
             // Check if file exists
             if (file_exists($fullPath) && is_file($fullPath)) {
@@ -415,7 +433,14 @@ function processIncludesInLoop($content, $loopData) {
         $contentDir = dirname(dirname(__FILE__)) . '/views';
         
         // Build the full path
-        $fullPath = $contentDir . '/' . $includePath;
+        // If path starts with /, it's already absolute from views directory
+        if (strpos($includePath, '/') === 0) {
+            // Absolute path from views directory
+            $fullPath = $contentDir . $includePath;
+        } else {
+            // Relative path from views directory
+            $fullPath = $contentDir . '/' . $includePath;
+        }
         
         // Check if file exists
         if (file_exists($fullPath) && is_file($fullPath)) {
@@ -471,6 +496,8 @@ function process() {
 
     // Build the file path
     $filePath = $contentDir . '/' . $basePath . '.html';
+    $actionFile = $actionsDir . '/' . $basePath . '.php';
+    
     // Check if the file exists
     if (file_exists($filePath) && is_file($filePath)) {
         // Execute action if exists and get returned data
@@ -478,24 +505,17 @@ function process() {
         
         // File found - serve it with action data
         serveFile($filePath, $actionData);
-    } else {
-        // File not found - check if there's an action-only endpoint
-        if ($isJsonRequest) {
-            // Check if action file exists
-            $actionFile = $actionsDir . '/' . $basePath . '.php';
-            
-            if (file_exists($actionFile) && is_file($actionFile)) {
-                // Action exists but no content file - return JSON response
-                $actionData = executeAction($basePath, $actionsDir);
-                
-                // Return JSON response
-                http_response_code(200);
-                header('Content-Type: application/json');
-                echo json_encode($actionData);
-                exit;
-            }
-        }
+    } else if (file_exists($actionFile) && is_file($actionFile)) {
+        // No template file but action exists - execute action only
+        // This allows for API endpoints without templates
+        $actionData = executeAction($basePath, $actionsDir);
         
+        // Return JSON response
+        http_response_code(200);
+        header('Content-Type: application/json');
+        echo json_encode($actionData);
+        exit;
+    } else {
         // No matching file or action - serve 404
         serve404($contentDir);
     }
@@ -525,6 +545,48 @@ function processCsrfTokens($content) {
     
     // Replace all <!--csrf--> comments with the CSRF input field
     $content = preg_replace('/<!--\s*csrf\s*-->/i', $csrfField, $content);
+    
+    return $content;
+}
+
+/**
+ * Process flash message directives in HTML content
+ * Supports: <!--flush--> (displays all flash messages wrapped in divs with class based on key)
+ * Supports: <!--flush:key--> (displays specific flash message by key wrapped in div)
+ */
+function processFlashMessages($content) {
+    // Pattern to match <!--flush:key--> for specific flash messages
+    $content = preg_replace_callback('/<!--\s*flush:\s*(\w+)\s*-->/i', function($matches) {
+        $key = $matches[1];
+        $message = getFlash($key);
+        
+        if ($message !== null) {
+            $escapedMessage = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+            $escapedKey = htmlspecialchars($key, ENT_QUOTES, 'UTF-8');
+            return '<div class="flash-' . $escapedKey . '">' . $escapedMessage . '</div>';
+        }
+        
+        return '';
+    }, $content);
+    
+    // Pattern to match <!--flush--> for all flash messages
+    $content = preg_replace_callback('/<!--\s*flush\s*-->/i', function($matches) {
+        if (!isset($_SESSION['flash']) || empty($_SESSION['flash'])) {
+            return '';
+        }
+        
+        $output = '';
+        foreach ($_SESSION['flash'] as $key => $message) {
+            $escapedMessage = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+            $escapedKey = htmlspecialchars($key, ENT_QUOTES, 'UTF-8');
+            $output .= '<div class="flash-' . $escapedKey . '">' . $escapedMessage . '</div>';
+        }
+        
+        // Clear all flash messages after displaying
+        $_SESSION['flash'] = [];
+        
+        return $output;
+    }, $content);
     
     return $content;
 }
