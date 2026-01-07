@@ -1,0 +1,20 @@
+{
+    "name": "nchankov/swse",
+    "description": "Simple WebSite Engine - thiny framework for creating simple yet dynamic and extensible websites",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Nchankov\\Swse\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Nik Chankov"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+	"php": ">=7.4"
+    }
+}
