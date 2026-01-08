@@ -81,6 +81,9 @@ if (!function_exists('process')) {
             // Process flash messages
             $content = processFlashMessages($content);
 
+            // Process date shortcodes
+            $content = processDateShortcodes($content);
+
             // Process template variables and loops
             $content = processTemplate($content, $actionData);
 
@@ -616,6 +619,29 @@ if (!function_exists('processCsrfTokens')) {
 
         // Replace all <!--csrf--> comments with the CSRF input field
         $content = preg_replace('/<!--\s*csrf\s*-->/i', $csrfField, $content);
+
+        return $content;
+    }
+}
+
+/**
+ * Process date shortcode directives in HTML content
+ * Supports: <!--date--> (default format: Y-m-d H:i:s)
+ * Supports: <!--date Y--> (custom format: just year)
+ * Supports: <!--date d/m/Y--> (custom format: day/month/year)
+ * Uses PHP date() format parameters
+ */
+if (!function_exists('processDateShortcodes')) {
+    function processDateShortcodes($content)
+    {
+        // Pattern to match <!--date format--> with optional format parameter
+        $content = preg_replace_callback('/<!--\s*date(?:\s+([^-]+?))?\s*-->/i', function($matches) {
+            // Default format if none specified
+            $format = isset($matches[1]) && !empty(trim($matches[1])) ? trim($matches[1]) : 'Y-m-d H:i:s';
+            
+            // Return formatted date
+            return date($format);
+        }, $content);
 
         return $content;
     }
