@@ -160,8 +160,8 @@ if (!function_exists('process')) {
 
             $content = preg_replace_callback($pattern, function ($matches) use ($data) {
                 $varName = $matches[1];
-                $key = isset($matches[2]) && $matches[2] !== '' ? trim($matches[2], '\'"') : null;
-                $ifContent = $matches[3];
+                $key = isset($matches[3]) && $matches[3] !== '' ? $matches[3] : null;
+                $ifContent = $matches[4];
 
                 $value = null;
                 $found = false;
