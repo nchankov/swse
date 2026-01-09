@@ -72,9 +72,6 @@ if (!function_exists('process')) {
             // Read the file content
             $content = file_get_contents($filePath);
 
-            // Process includes (without data context - top level)
-            $content = processIncludes($content, dirname($filePath), $actionData);
-
             // Process CSRF tokens
             $content = processCsrfTokens($content);
 
@@ -84,8 +81,11 @@ if (!function_exists('process')) {
             // Process date shortcodes
             $content = processDateShortcodes($content);
 
-            // Process template variables and loops
+            // Process template variables and loops (this will handle includes inside loops)
             $content = processTemplate($content, $actionData);
+
+            // Process remaining includes (outside of loops) after template processing
+            $content = processIncludes($content, dirname($filePath), $actionData);
 
             echo $content;
             exit;
@@ -284,14 +284,18 @@ if (!function_exists('process')) {
 
         /**
          * Process simple variables in template
-         * Supports: <!--$variable--> and <!--$array[key]--> and <!--$array["key"]-->
+         * Supports: <!--$variable--> and <!--$array[key]--> and <!--$array["key"]--> and <!--$array['key']-->
          */
         function processVariables($content, $data)
         {
             // Pattern to match array access: <!--$variable[key]--> or <!--$variable["key"]-->
             $content = preg_replace_callback('/<!--\s*\$(\w+)\[(["\']?)([^\]]+)\2\]\s*-->/i', function ($matches) use ($data) {
                 $varName = $matches[1];
-                $key = $matches[3]; // Key without quotes
+                $quote = $matches[2]; // Quote character (empty, ' or ")
+                $key = $matches[3]; // Key (may include quotes if pattern didn't capture them)
+                
+                // Remove any remaining quotes from the key
+                $key = trim($key, '\'"');
 
                 if (isset($data[$varName]) && is_array($data[$varName]) && isset($data[$varName][$key])) {
                     return htmlspecialchars($data[$varName][$key], ENT_QUOTES, 'UTF-8');
