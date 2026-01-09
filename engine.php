@@ -613,7 +613,8 @@ if (!function_exists('getCsrfToken')) {
 
 /**
  * Process CSRF token directives in HTML content
- * Supports: <!--csrf-->
+ * Supports: <!--csrf--> (full hidden input field)
+ * Supports: <!--csrf_token--> (just the token value)
  */
 if (!function_exists('processCsrfTokens')) {
     function processCsrfTokens($content)
@@ -621,7 +622,10 @@ if (!function_exists('processCsrfTokens')) {
         $token = getCsrfToken();
         $csrfField = '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token, ENT_QUOTES, 'UTF-8') . '">';
 
-        // Replace all <!--csrf--> comments with the CSRF input field
+        // Replace <!--csrf_token--> with just the token value
+        $content = preg_replace('/<!--\s*csrf_token\s*-->/i', htmlspecialchars($token, ENT_QUOTES, 'UTF-8'), $content);
+
+        // Replace <!--csrf--> with the full CSRF input field
         $content = preg_replace('/<!--\s*csrf\s*-->/i', $csrfField, $content);
 
         return $content;
