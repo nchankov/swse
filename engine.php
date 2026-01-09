@@ -779,9 +779,13 @@ if (!function_exists('getFlash')) {
  * Get POST data safely
  */
 if (!function_exists('getPost')) {
-    function getPost($key, $default = null)
+    function getPost($key, $default = null, $var = [])
     {
-        $value = $_POST[$key] ?? $default;
+        if ($var) {
+            $value = $var[$key] ?? $default;
+        } else {
+            $value = $_POST[$key] ?? $default;
+        }
         return htmlspecialchars(strip_tags($value), ENT_QUOTES, 'UTF-8');
     }
 }
@@ -790,9 +794,13 @@ if (!function_exists('getPost')) {
  * Get GET data safely
  */
 if (!function_exists('getQuery')) {
-    function getQuery($key, $default = null)
+    function getQuery($key, $default = null, $var = [])
     {
-        $value = $_GET[$key] ?? $default;
+        if ($var) {
+            $value = $var[$key] ?? $default;
+        } else {
+            $value = $_GET[$key] ?? $default;
+        }
         return htmlspecialchars(strip_tags($value), ENT_QUOTES, 'UTF-8');
     }
 }
