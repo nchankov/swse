@@ -72,20 +72,20 @@ if (!function_exists('process')) {
             // Read the file content
             $content = file_get_contents($filePath);
 
-            // Process CSRF tokens
-            $content = processCsrfTokens($content);
+            // Process includes (without data context - top level)
+            $content = processIncludes($content, dirname($filePath), $actionData);
 
-            // Process flash messages
-            $content = processFlashMessages($content);
-
-            // Process date shortcodes
-            $content = processDateShortcodes($content);
-
-            // Process template variables and loops (this will handle includes inside loops)
+            // Process template variables and loops
             $content = processTemplate($content, $actionData);
 
-            // Process remaining includes (outside of loops) after template processing
-            $content = processIncludes($content, dirname($filePath), $actionData);
+            // Process CSRF tokens (after includes so they work in included files)
+            $content = processCsrfTokens($content);
+
+            // Process flash messages (after includes so they work in included files)
+            $content = processFlashMessages($content);
+
+            // Process date shortcodes (after includes so they work in included files)
+            $content = processDateShortcodes($content);
 
             echo $content;
             exit;
@@ -160,8 +160,8 @@ if (!function_exists('process')) {
 
             $content = preg_replace_callback($pattern, function ($matches) use ($data) {
                 $varName = $matches[1];
-                $key = isset($matches[3]) && $matches[3] !== '' ? $matches[3] : null;
-                $ifContent = $matches[4];
+                $key = isset($matches[2]) && $matches[2] !== '' ? trim($matches[2], '\'"') : null;
+                $ifContent = $matches[3];
 
                 $value = null;
                 $found = false;
@@ -284,18 +284,14 @@ if (!function_exists('process')) {
 
         /**
          * Process simple variables in template
-         * Supports: <!--$variable--> and <!--$array[key]--> and <!--$array["key"]--> and <!--$array['key']-->
+         * Supports: <!--$variable--> and <!--$array[key]--> and <!--$array["key"]-->
          */
         function processVariables($content, $data)
         {
             // Pattern to match array access: <!--$variable[key]--> or <!--$variable["key"]-->
             $content = preg_replace_callback('/<!--\s*\$(\w+)\[(["\']?)([^\]]+)\2\]\s*-->/i', function ($matches) use ($data) {
                 $varName = $matches[1];
-                $quote = $matches[2]; // Quote character (empty, ' or ")
-                $key = $matches[3]; // Key (may include quotes if pattern didn't capture them)
-                
-                // Remove any remaining quotes from the key
-                $key = trim($key, '\'"');
+                $key = $matches[3]; // Key without quotes
 
                 if (isset($data[$varName]) && is_array($data[$varName]) && isset($data[$varName][$key])) {
                     return htmlspecialchars($data[$varName][$key], ENT_QUOTES, 'UTF-8');
@@ -613,8 +609,7 @@ if (!function_exists('getCsrfToken')) {
 
 /**
  * Process CSRF token directives in HTML content
- * Supports: <!--csrf--> (full hidden input field)
- * Supports: <!--csrf_token--> (just the token value)
+ * Supports: <!--csrf-->
  */
 if (!function_exists('processCsrfTokens')) {
     function processCsrfTokens($content)
@@ -622,10 +617,7 @@ if (!function_exists('processCsrfTokens')) {
         $token = getCsrfToken();
         $csrfField = '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token, ENT_QUOTES, 'UTF-8') . '">';
 
-        // Replace <!--csrf_token--> with just the token value
-        $content = preg_replace('/<!--\s*csrf_token\s*-->/i', htmlspecialchars($token, ENT_QUOTES, 'UTF-8'), $content);
-
-        // Replace <!--csrf--> with the full CSRF input field
+        // Replace all <!--csrf--> comments with the CSRF input field
         $content = preg_replace('/<!--\s*csrf\s*-->/i', $csrfField, $content);
 
         return $content;
@@ -706,12 +698,10 @@ if (!function_exists('processFlashMessages')) {
  * Call this function in your form processing code
  */
 if (!function_exists('verifyCsrf')) {
-    function verifyCsrf($token = null)
+    function verifyCsrf()
     {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            if (!$token) {
-                $token = $_POST['csrf_token'] ?? '';
-            }
+            $token = $_POST['csrf_token'] ?? '';
             $sessionToken = $_SESSION['csrf_token'] ?? '';
 
             if (!hash_equals($sessionToken, $token)) {
@@ -781,13 +771,9 @@ if (!function_exists('getFlash')) {
  * Get POST data safely
  */
 if (!function_exists('getPost')) {
-    function getPost($key, $default = null, $var = [])
+    function getPost($key, $default = null)
     {
-        if ($var) {
-            $value = $var[$key] ?? $default;
-        } else {
-            $value = $_POST[$key] ?? $default;
-        }
+        $value = $_POST[$key] ?? $default;
         return htmlspecialchars(strip_tags($value), ENT_QUOTES, 'UTF-8');
     }
 }
@@ -796,13 +782,9 @@ if (!function_exists('getPost')) {
  * Get GET data safely
  */
 if (!function_exists('getQuery')) {
-    function getQuery($key, $default = null, $var = [])
+    function getQuery($key, $default = null)
     {
-        if ($var) {
-            $value = $var[$key] ?? $default;
-        } else {
-            $value = $_GET[$key] ?? $default;
-        }
+        $value = $_GET[$key] ?? $default;
         return htmlspecialchars(strip_tags($value), ENT_QUOTES, 'UTF-8');
     }
 }
