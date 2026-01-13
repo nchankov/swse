@@ -364,6 +364,18 @@ if (!function_exists('process')) {
          */
         function processIncludes($content, $baseDir, $data = [])
         {
+            // First, protect includes that are inside foreach loops by temporarily replacing them
+            $foreachPattern = '/<!--\s*foreach\s*\([^)]+\)\s*-->(.*?)<!--\s*endforeach\s*-->/is';
+            $protectedBlocks = [];
+            $blockIndex = 0;
+            
+            $content = preg_replace_callback($foreachPattern, function($matches) use (&$protectedBlocks, &$blockIndex) {
+                $placeholder = "<!--PROTECTED_FOREACH_BLOCK_{$blockIndex}-->";
+                $protectedBlocks[$blockIndex] = $matches[0];
+                $blockIndex++;
+                return $placeholder;
+            }, $content);
+            
             // Pattern to match include comments with optional parameters
             // Matches: <!--include:path--> or <!--include:path ['key'=>'value']-->
             $pattern = '/<!--\s*include:\s*([^\s\[]+)(?:\s*\[([^\]]+)\])?\s*-->/i';
@@ -416,6 +428,12 @@ if (!function_exists('process')) {
 
                 $depth++;
             }
+            
+            // Restore protected foreach blocks
+            foreach ($protectedBlocks as $index => $block) {
+                $placeholder = "<!--PROTECTED_FOREACH_BLOCK_{$index}-->";
+                $content = str_replace($placeholder, $block, $content);
+            }
 
             return $content;
         }
@@ -462,13 +480,8 @@ if (!function_exists('process')) {
                     // Read the included file content
                     $includedContent = file_get_contents($fullPath);
 
-                    // Process the included content with merged data
-                    // Process if statements first
-                    $includedContent = processIfStatements($includedContent, $mergedData);
-
-                    // Then process variables
-                    $includedContent = processVariables($includedContent, $mergedData);
-
+                    // Don't process variables here - just return the content
+                    // Variables will be processed in the main loop in processForeachLoops
                     return $includedContent;
                 } else {
                     // Return a comment indicating the file was not found
@@ -609,7 +622,8 @@ if (!function_exists('getCsrfToken')) {
 
 /**
  * Process CSRF token directives in HTML content
- * Supports: <!--csrf-->
+ * Supports: <!--csrf--> (full hidden input field)
+ * Supports: <!--csrf_token--> (just the token value)
  */
 if (!function_exists('processCsrfTokens')) {
     function processCsrfTokens($content)
@@ -617,7 +631,10 @@ if (!function_exists('processCsrfTokens')) {
         $token = getCsrfToken();
         $csrfField = '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token, ENT_QUOTES, 'UTF-8') . '">';
 
-        // Replace all <!--csrf--> comments with the CSRF input field
+        // Replace <!--csrf_token--> with just the token value (must be first to avoid matching <!--csrf-->)
+        $content = preg_replace('/<!--\s*csrf_token\s*-->/i', htmlspecialchars($token, ENT_QUOTES, 'UTF-8'), $content);
+
+        // Replace <!--csrf--> with the full CSRF input field
         $content = preg_replace('/<!--\s*csrf\s*-->/i', $csrfField, $content);
 
         return $content;
