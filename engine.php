@@ -706,10 +706,12 @@ if (!function_exists('processFlashMessages')) {
  * Call this function in your form processing code
  */
 if (!function_exists('verifyCsrf')) {
-    function verifyCsrf()
+    function verifyCsrf($token = null)
     {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $token = $_POST['csrf_token'] ?? '';
+            if (!$token) {
+                $token = $_POST['csrf_token'] ?? '';
+            }
             $sessionToken = $_SESSION['csrf_token'] ?? '';
 
             if (!hash_equals($sessionToken, $token)) {
