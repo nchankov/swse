@@ -142,12 +142,12 @@ if (!function_exists('process')) {
                     }
                 }
 
-                // If variable wasn't found, don't show content
+                // Negation: show content if variable wasn't found OR if value is empty/falsy
                 if (!$found) {
-                    return '';
+                    return $ifContent; // Variable not found, condition !$var is true
                 }
 
-                // Negation: show content if value is empty, null, false, or 0
+                // Variable was found, check if value is empty, null, false, or 0
                 if (empty($value) && $value !== '0' && $value !== 0) {
                     return $ifContent;
                 }
