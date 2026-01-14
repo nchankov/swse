@@ -715,10 +715,12 @@ if (!function_exists('processFlashMessages')) {
  * Call this function in your form processing code
  */
 if (!function_exists('verifyCsrf')) {
-    function verifyCsrf()
+    function verifyCsrf($token = null)
     {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $token = $_POST['csrf_token'] ?? '';
+            if ($token === null) {
+                $token = $_POST['csrf_token'] ?? '';
+            }
             $sessionToken = $_SESSION['csrf_token'] ?? '';
 
             if (!hash_equals($sessionToken, $token)) {
@@ -788,10 +790,16 @@ if (!function_exists('getFlash')) {
  * Get POST data safely
  */
 if (!function_exists('getPost')) {
-    function getPost($key, $default = null)
+    function getPost($key, $default = null, $variables = [])
     {
-        $value = $_POST[$key] ?? $default;
-        return htmlspecialchars(strip_tags($value), ENT_QUOTES, 'UTF-8');
+        if (!$variables) {
+            $variables = $_POST;
+        }
+        $value = $variables[$key] ?? $default;
+        if (!$value) {
+            return $default;
+        }
+        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
     }
 }
 
@@ -799,9 +807,15 @@ if (!function_exists('getPost')) {
  * Get GET data safely
  */
 if (!function_exists('getQuery')) {
-    function getQuery($key, $default = null)
+    function getQuery($key, $default = null, $variables = [])
     {
-        $value = $_GET[$key] ?? $default;
-        return htmlspecialchars(strip_tags($value), ENT_QUOTES, 'UTF-8');
+        if (!$variables) {
+            $variables = $_POST;
+        }
+        $value = $variables[$key] ?? $default;
+        if (!$value) {
+            return $default;
+        }
+        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
     }
 }
