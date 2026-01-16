@@ -87,6 +87,9 @@ if (!function_exists('process')) {
             // Process date shortcodes (after includes so they work in included files)
             $content = processDateShortcodes($content);
 
+            // Process pagination shortcode (after includes so they work in included files)
+            $content = processPaginationShortcode($content, $actionData);
+
             echo $content;
             exit;
         }
@@ -658,6 +661,125 @@ if (!function_exists('processDateShortcodes')) {
             
             // Return formatted date
             return date($format);
+        }, $content);
+
+        return $content;
+    }
+}
+
+/**
+ * Process pagination shortcode directive in HTML content
+ * Supports: <!--pagination--> (displays pagination navigation with 10 items per page by default)
+ * Supports: <!--pagination 20--> (displays pagination with custom items per page)
+ * Requires $totalRecords from action data
+ * Uses query parameter 'page' to determine current page (defaults to 1)
+ */
+if (!function_exists('processPaginationShortcode')) {
+    function processPaginationShortcode($content, $data = [])
+    {
+        // Pattern to match <!--pagination--> or <!--pagination 20-->
+        $content = preg_replace_callback('/<!--\s*pagination(?:\s+(\d+))?\s*-->/i', function($matches) use ($data) {
+            // Get items per page from shortcode parameter (default to 10)
+            $itemsPerPage = isset($matches[1]) && !empty($matches[1]) ? (int)$matches[1] : 10;
+            
+            // Get total records from action data
+            $totalRecords = isset($data['totalRecords']) ? (int)$data['totalRecords'] : 0;
+            
+            // Calculate total pages
+            $totalPages = $totalRecords > 0 ? (int)ceil($totalRecords / $itemsPerPage) : 0;
+            
+            // If no pages, return empty string
+            if ($totalPages <= 0) {
+                return '';
+            }
+            
+            // Get current page from query parameter (default to 1)
+            $currentPage = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+            
+            // Ensure current page is within valid range
+            if ($currentPage < 1) {
+                $currentPage = 1;
+            } elseif ($currentPage > $totalPages) {
+                $currentPage = $totalPages;
+            }
+            
+            // Build pagination HTML with class indicating single page
+            $paginationClass = 'pagination';
+            if ($totalPages <= 1) {
+                $paginationClass .= ' single-page';
+            }
+            $html = '<div class="' . $paginationClass . '">';
+            
+            // Get current URL without page parameter
+            $baseUrl = strtok($_SERVER['REQUEST_URI'], '?');
+            $queryParams = $_GET;
+            unset($queryParams['page']);
+            $queryString = http_build_query($queryParams);
+            $separator = $queryString ? '&' : '';
+            
+            // First page button
+            if ($currentPage > 1) {
+                $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=1" class="first">«</a>';
+            } else {
+                $html .= '<span class="disabled first">«</span>';
+            }
+            
+            // Previous page button
+            if ($currentPage > 1) {
+                $prevPage = $currentPage - 1;
+                $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=' . $prevPage . '" class="prev">‹</a>';
+            } else {
+                $html .= '<span class="disabled prev">‹</span>';
+            }
+            
+            // Page numbers with current page in center
+            $startPage = max(1, $currentPage - 2);
+            $endPage = min($totalPages, $currentPage + 2);
+            
+            // Adjust if we're near the beginning or end
+            if ($currentPage <= 2) {
+                $endPage = min($totalPages, 5);
+            } elseif ($currentPage >= $totalPages - 1) {
+                $startPage = max(1, $totalPages - 4);
+            }
+            
+            for ($i = $startPage; $i <= $endPage; $i++) {
+                $position = $i - $currentPage;
+                $positionClass = '';
+                
+                if ($position < 0) {
+                    $positionClass = 'prev-' . abs($position);
+                } elseif ($position > 0) {
+                    $positionClass = 'next-' . $position;
+                } else {
+                    $positionClass = 'page-0';
+                }
+                
+                if ($i == $currentPage) {
+                    $html .= '<span class="current ' . $positionClass . '">' . $i . '</span>';
+                } else {
+                    $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=' . $i . '" class="' . $positionClass . '">' . $i . '</a>';
+                }
+            }
+            
+            // Next page button
+            if ($currentPage < $totalPages) {
+                $nextPage = $currentPage + 1;
+                $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=' . $nextPage . '" class="next">›</a>';
+            } else {
+                $html .= '<span class="disabled next">›</span>';
+            }
+            
+            // Last page button
+            if ($currentPage < $totalPages) {
+                $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=' . $totalPages . '" class="last">»</a>';
+            } else {
+                $html .= '<span class="disabled last">»</span>';
+            }
+            
+            $html .= '</div>';
+            
+            return $html;
         }, $content);
 
         return $content;
