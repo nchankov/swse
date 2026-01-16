@@ -557,8 +557,14 @@ if (!function_exists('process')) {
         $requestUri = $_SERVER['REQUEST_URI'];
         $path = parse_url($requestUri, PHP_URL_PATH);
 
-        // Remove leading slash
-        $path = ltrim($path, '/');
+        // Check if .htaccess provided a route override
+        if (isset($_GET['__route'])) {
+            $path = $_GET['__route'];
+            unset($_GET['__route']);
+        } else {
+            // Remove leading slash
+            $path = ltrim($path, '/');
+        }
 
         // If path is empty, use index
         if (empty($path)) {
