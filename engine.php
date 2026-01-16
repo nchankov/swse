@@ -810,7 +810,7 @@ if (!function_exists('getQuery')) {
     function getQuery($key, $default = null, $variables = [])
     {
         if (!$variables) {
-            $variables = $_POST;
+            $variables = $_GET;
         }
         $value = $variables[$key] ?? $default;
         if (!$value) {
