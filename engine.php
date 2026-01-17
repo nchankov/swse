@@ -566,6 +566,18 @@ if (!function_exists('process')) {
             $path = ltrim($path, '/');
         }
 
+        // Security: Validate path to prevent path traversal attacks
+        // - Only allow letters, numbers, forward slash, and dash
+        // - Block any path containing .. (parent directory traversal)
+        // - Block paths starting with / (absolute paths)
+        if (!empty($path)) {
+            if (!preg_match('/^[a-zA-Z0-9\/-]+$/', $path) || strpos($path, '..') !== false) {
+                http_response_code(400);
+                echo "Bad Request";
+                exit;
+            }
+        }
+
         // If path is empty, use index
         if (empty($path)) {
             $path = 'index';
