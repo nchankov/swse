@@ -67,8 +67,6 @@ if (!function_exists('process')) {
          */
         function serveFile($filePath, $actionData = [])
         {
-            header('Content-Type: text/html; charset=UTF-8');
-
             // Read the file content
             $content = file_get_contents($filePath);
 
@@ -90,8 +88,7 @@ if (!function_exists('process')) {
             // Process pagination shortcode (after includes so they work in included files)
             $content = processPaginationShortcode($content, $actionData);
 
-            echo $content;
-            exit;
+            return $content;
         }
 
         /**
@@ -502,8 +499,7 @@ if (!function_exists('process')) {
         {
             $notFoundPath = $contentDir . '/404.html';
 
-            http_response_code(404);
-            header('Content-Type: text/html; charset=UTF-8');
+            
 
             if (file_exists($notFoundPath) && is_file($notFoundPath)) {
                 readfile($notFoundPath);
@@ -606,7 +602,9 @@ if (!function_exists('process')) {
             $actionData = executeAction($basePath, $actionsDir);
 
             // File found - serve it with action data
-            serveFile($filePath, $actionData);
+            header('Content-Type: text/html; charset=UTF-8');
+            echo serveFile($filePath, $actionData);
+            exit;
         } else if (file_exists($actionFile) && is_file($actionFile)) {
             // No template file but action exists - execute action only
             // This allows for API endpoints without templates
@@ -618,8 +616,11 @@ if (!function_exists('process')) {
             echo json_encode($actionData);
             exit;
         } else {
+            http_response_code(404);
+            header('Content-Type: text/html; charset=UTF-8');
             // No matching file or action - serve 404
-            serve404($contentDir);
+            echo serve404($contentDir);
+            exit;
         }
     }
 }
