@@ -563,11 +563,12 @@ if (!function_exists('process')) {
         }
 
         // Security: Validate path to prevent path traversal attacks
-        // - Only allow letters, numbers, forward slash, and dash
+        // - Must start with letter or number
+        // - Can contain letters, numbers, forward slash, dash, underscore
+        // - Can optionally end with .extension (e.g., .json, .html)
         // - Block any path containing .. (parent directory traversal)
-        // - Block paths starting with / (absolute paths)
         if (!empty($path)) {
-            if (!preg_match('/^[a-zA-Z0-9\/-]+$/', $path) || strpos($path, '..') !== false) {
+            if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9\/_-]*(?:\.[a-zA-Z0-9]+)?$/', $path) || strpos($path, '..') !== false) {
                 http_response_code(400);
                 echo "Bad Request";
                 exit;
