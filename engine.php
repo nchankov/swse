@@ -353,6 +353,17 @@ if (!function_exists('process')) {
          */
         function processVariables($content, $data)
         {
+            // Pattern to match environment variables: <!--e("PARAMETER_NAME")--> or <!--e('PARAMETER_NAME')-->
+            $content = preg_replace_callback('/<!--\s*e\s*\(\s*(["\'])([^"\']+)\1\s*\)\s*-->/i', function ($matches) {
+                $envVarName = $matches[2]; // Environment variable name
+
+                if (isset($_ENV[$envVarName])) {
+                    return htmlspecialchars($_ENV[$envVarName], ENT_QUOTES, 'UTF-8');
+                }
+
+                return ''; // Environment variable not found
+            }, $content);
+
             // Pattern to match array access: <!--$variable[key]--> or <!--$variable["key"]-->
             $content = preg_replace_callback('/<!--\s*\$(\w+)\[(["\']?)([^\]]+)\2\]\s*-->/i', function ($matches) use ($data) {
                 $varName = $matches[1];
