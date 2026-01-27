@@ -5,6 +5,71 @@
  */
 
 /**
+ * Load and parse .env file into $_ENV
+ * Silently fails if file doesn't exist, but triggers warning on parse errors
+ */
+(function() {
+    $envPath = dirname(__DIR__) . '/.env';
+    
+    if (!file_exists($envPath)) {
+        return; // Silently return if file doesn't exist
+    }
+    
+    $lines = @file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    
+    if ($lines === false) {
+        return; // Silently return if file can't be read
+    }
+    
+    foreach ($lines as $lineNumber => $line) {
+        $line = trim($line);
+        
+        // Skip comments and empty lines
+        if (empty($line) || $line[0] === '#') {
+            continue;
+        }
+        
+        // Check if line contains '='
+        if (strpos($line, '=') === false) {
+            trigger_error(
+                "Parse error in .env file at line " . ($lineNumber + 1) . ": Missing '=' separator",
+                E_USER_WARNING
+            );
+            continue;
+        }
+        
+        // Parse key=value pairs
+        list($key, $value) = explode('=', $line, 2);
+        $key = trim($key);
+        $value = trim($value);
+        
+        // Validate key (must not be empty and should be valid variable name)
+        if (empty($key)) {
+            trigger_error(
+                "Parse error in .env file at line " . ($lineNumber + 1) . ": Empty variable name",
+                E_USER_WARNING
+            );
+            continue;
+        }
+        
+        // Remove quotes if present
+        if (strlen($value) > 1) {
+            if (($value[0] === '"' && $value[strlen($value) - 1] === '"') ||
+                ($value[0] === "'" && $value[strlen($value) - 1] === "'")) {
+                $value = substr($value, 1, -1);
+            }
+        }
+        
+        // Set in $_ENV
+        $_ENV[$key] = $value;
+        
+        // Optionally also set in $_SERVER and putenv for compatibility
+        $_SERVER[$key] = $value;
+        putenv("$key=$value");
+    }
+})();
+
+/**
  * This is the main logic of the engine
  * @return void
  */
