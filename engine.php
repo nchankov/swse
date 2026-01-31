@@ -416,7 +416,8 @@ if (!function_exists('process')) {
 
         /**
          * Process simple variables in template
-         * Supports: <!--$variable--> and <!--$array[key]--> and <!--$array["key"]-->
+         * Supports: <!--$variable--> (escaped) and <!--($variable)--> (raw/unescaped)
+         * Supports: <!--$array[key]--> and <!--$array["key"]-->
          */
         function processVariables($content, $data)
         {
@@ -431,6 +432,18 @@ if (!function_exists('process')) {
                 return ''; // Environment variable not found
             }, $content);
 
+            // Pattern to match raw (unescaped) array access: <!--($variable[key])--> or <!--($variable["key"])-->
+            $content = preg_replace_callback('/<!--\s*\(\s*\$(\w+)\[(["\']?)([^\]]+)\2\]\s*\)\s*-->/i', function ($matches) use ($data) {
+                $varName = $matches[1];
+                $key = $matches[3]; // Key without quotes
+
+                if (isset($data[$varName]) && is_array($data[$varName]) && isset($data[$varName][$key])) {
+                    return $data[$varName][$key]; // Return raw, unescaped value
+                }
+
+                return ''; // Variable or key not found
+            }, $content);
+
             // Pattern to match array access: <!--$variable[key]--> or <!--$variable["key"]-->
             $content = preg_replace_callback('/<!--\s*\$(\w+)\[(["\']?)([^\]]+)\2\]\s*-->/i', function ($matches) use ($data) {
                 $varName = $matches[1];
@@ -441,6 +454,27 @@ if (!function_exists('process')) {
                 }
 
                 return ''; // Variable or key not found
+            }, $content);
+
+            // Pattern to match raw (unescaped) simple variables: <!--($variable)-->
+            $content = preg_replace_callback('/<!--\s*\(\s*\$(\w+)\s*\)\s*-->/i', function ($matches) use ($data) {
+                $varName = $matches[1];
+
+                if (isset($data[$varName])) {
+                    $value = $data[$varName];
+
+                    // If it's a scalar value, return it raw (unescaped)
+                    if (is_scalar($value)) {
+                        return $value;
+                    }
+
+                    // If it's an array or object, return JSON representation
+                    if (is_array($value) || is_object($value)) {
+                        return json_encode($value);
+                    }
+                }
+
+                return ''; // Variable not found
             }, $content);
 
             // Pattern to match simple variables: <!--$variable-->
