@@ -871,7 +871,7 @@ if (!function_exists('processDateShortcodes')) {
 
 /**
  * Process pagination shortcode directive in HTML content
- * Supports: <!--pagination--> (displays pagination navigation with 10 items per page by default)
+ * Supports: <!--pagination--> (displays pagination navigation, uses PAGINATION env var or defaults to 10)
  * Supports: <!--pagination 20--> (displays pagination with custom items per page)
  * Requires $totalRecords from action data
  * Uses query parameter 'page' to determine current page (defaults to 1)
@@ -881,8 +881,14 @@ if (!function_exists('processPaginationShortcode')) {
     {
         // Pattern to match <!--pagination--> or <!--pagination 20-->
         $content = preg_replace_callback('/<!--\s*pagination(?:\s+(\d+))?\s*-->/i', function($matches) use ($data) {
-            // Get items per page from shortcode parameter (default to 10)
-            $itemsPerPage = isset($matches[1]) && !empty($matches[1]) ? (int)$matches[1] : 10;
+            // Get items per page from shortcode parameter, or PAGINATION env var, or default to 10
+            if (isset($matches[1]) && !empty($matches[1])) {
+                $itemsPerPage = (int)$matches[1];
+            } elseif (isset($_ENV['PAGINATION']) && !empty($_ENV['PAGINATION'])) {
+                $itemsPerPage = (int)$_ENV['PAGINATION'];
+            } else {
+                $itemsPerPage = 10;
+            }
             
             // Get total records from action data
             $totalRecords = isset($data['totalRecords']) ? (int)$data['totalRecords'] : 0;
