@@ -153,6 +153,70 @@ if (!function_exists('process')) {
             // Process pagination shortcode (after includes so they work in included files)
             $content = processPaginationShortcode($content, $actionData);
 
+            // Process layout (after everything else is rendered)
+            $content = processLayout($content, $actionData);
+
+            return $content;
+        }
+
+        /**
+         * Process layout directive
+         * Supports: <!--layout:/default.html--> at the top of the file
+         * Supports: <!--layout:/default.html ['key'=>'value','key2'=>'value2']--> with parameters
+         * Layout file should contain <!--layout-content--> placeholder
+         * Layout path is relative to layouts/ directory
+         * Layout parameters are defaults that can be overwritten by action data
+         */
+        function processLayout($content, $actionData = [])
+        {
+            // Pattern to match layout directive at the beginning of content
+            // Matches: <!--layout:/path/to/layout.html--> or <!--layout:/path ['params']-->
+            $pattern = '/^\s*<!--\s*layout:\s*([^\s\[]+)(?:\s*\[([^\]]+)\])?\s*-->\s*\n?/i';
+            
+            if (preg_match($pattern, $content, $matches)) {
+                $layoutPath = trim($matches[1]);
+                $paramsString = isset($matches[2]) ? trim($matches[2]) : '';
+                
+                // Parse layout parameters if provided
+                $layoutParams = [];
+                if (!empty($paramsString)) {
+                    $layoutParams = parseIncludeParams($paramsString);
+                }
+                
+                // Merge layout params with action data (action data overwrites layout params)
+                $mergedData = array_merge($layoutParams, $actionData);
+                
+                // Remove the layout directive from content
+                $viewContent = preg_replace($pattern, '', $content, 1);
+                
+                // Build the full path to layout file
+                // Layout path starts with / and is relative to layouts directory
+                $layoutsDir = dirname(dirname(__FILE__)) . '/layouts';
+                $fullLayoutPath = $layoutsDir . $layoutPath;
+                
+                // Check if layout file exists
+                if (file_exists($fullLayoutPath) && is_file($fullLayoutPath)) {
+                    // Read the layout file
+                    $layoutContent = file_get_contents($fullLayoutPath);
+                    
+                    // Process includes in the layout
+                    $layoutContent = processIncludes($layoutContent, dirname($fullLayoutPath), $mergedData);
+                    
+                    // Process template variables, if statements, etc. in the layout
+                    $layoutContent = processIfStatements($layoutContent, $mergedData);
+                    $layoutContent = processVariables($layoutContent, $mergedData);
+                    
+                    // Replace the <!--layout-content--> placeholder with the view content
+                    $finalContent = str_replace('<!--layout-content-->', $viewContent, $layoutContent);
+                    
+                    return $finalContent;
+                } else {
+                    // Layout file not found, return original content with comment
+                    return "<!-- Layout not found: {$layoutPath} -->\n" . $content;
+                }
+            }
+            
+            // No layout directive found, return content as-is
             return $content;
         }
 
