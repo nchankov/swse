@@ -757,6 +757,11 @@ if (!function_exists('process')) {
             $path = 'index';
         }
 
+        // If path ends with a slash, append 'index'
+        if (substr($path, -1) === '/') {
+            $path = rtrim($path, '/') . '/index';
+        }
+
         // Define the content directory (relative to this file)
         $contentDir = $projectRoot . '/views';
         $actionsDir = $projectRoot . '/actions';
