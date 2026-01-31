@@ -4,6 +4,9 @@
  * Routes requests to HTML files in the content directory
  */
 
+// Define project root directory (where .env file is located)
+define('ROOT_DIR', dirname(__DIR__));
+
 /**
  * Load and parse .env file into $_ENV
  * Silently fails if file doesn't exist, but triggers warning on parse errors
