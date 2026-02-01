@@ -7,6 +7,11 @@
 // Define project root directory (where .env file is located)
 define('ROOT_DIR', dirname(__DIR__));
 
+// Load Composer autoloader if it exists
+if (file_exists(ROOT_DIR . '/vendor/autoload.php')) {
+    require_once ROOT_DIR . '/vendor/autoload.php';
+}
+
 /**
  * Load and parse .env file into $_ENV
  * Silently fails if file doesn't exist, but triggers warning on parse errors
