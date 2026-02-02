@@ -852,63 +852,73 @@ if (!function_exists('process')) {
         $filePath = $contentDir . '/' . $basePath . '.html';
         $actionFile = $actionsDir . '/' . $basePath . '.php';
 
-        // Check if the file exists in main directories
+        // Extract potential plugin name (first URL segment) for fallback
+        $pathSegments = explode('/', $basePath);
+        $potentialPlugin = $pathSegments[0];
+        $pluginDir = $projectRoot . '/' . $potentialPlugin;
+        $pluginRoute = count($pathSegments) > 1 ? implode('/', array_slice($pathSegments, 1)) : 'index';
+        
+        // Determine action source: project first, then plugin
+        $finalActionFile = null;
+        $finalActionsDir = null;
+        $finalActionRoute = null;
+        
+        if (file_exists($actionFile) && is_file($actionFile)) {
+            // Use project action
+            $finalActionFile = $actionFile;
+            $finalActionsDir = $actionsDir;
+            $finalActionRoute = $basePath;
+        } else if (is_dir($pluginDir)) {
+            // Check plugin action as fallback
+            $pluginActionsDir = $pluginDir . '/actions';
+            $pluginActionFile = $pluginActionsDir . '/' . $pluginRoute . '.php';
+            
+            if (file_exists($pluginActionFile) && is_file($pluginActionFile)) {
+                $finalActionFile = $pluginActionFile;
+                $finalActionsDir = $pluginActionsDir;
+                $finalActionRoute = $pluginRoute;
+            }
+        }
+        
+        // Determine view source: project first, then plugin
+        $finalViewFile = null;
+        $finalPluginName = null;
+        
         if (file_exists($filePath) && is_file($filePath)) {
-            // Execute action if exists and get returned data
-            $actionData = executeAction($basePath, $actionsDir);
-
-            // File found - serve it with action data
+            // Use project view
+            $finalViewFile = $filePath;
+            $finalPluginName = null;
+        } else if (is_dir($pluginDir)) {
+            // Check plugin view as fallback
+            $pluginViewsDir = $pluginDir . '/views';
+            $pluginFilePath = $pluginViewsDir . '/' . $pluginRoute . '.html';
+            
+            if (file_exists($pluginFilePath) && is_file($pluginFilePath)) {
+                $finalViewFile = $pluginFilePath;
+                $finalPluginName = $potentialPlugin;
+            }
+        }
+        
+        // Now serve based on what we found
+        if ($finalViewFile) {
+            // We have a view file - execute action if available and serve view
+            $actionData = [];
+            if ($finalActionFile) {
+                $actionData = executeAction($finalActionRoute, $finalActionsDir);
+            }
+            
             header('Content-Type: text/html; charset=UTF-8');
-            echo serveFile($filePath, $actionData);
+            echo serveFile($finalViewFile, $actionData, $finalPluginName);
             exit;
-        } else if (file_exists($actionFile) && is_file($actionFile)) {
-            // No template file but action exists - execute action only
-            // This allows for API endpoints without templates
-            $actionData = executeAction($basePath, $actionsDir);
-
+        } else if ($finalActionFile) {
+            // No view but action exists - execute action only (API endpoint)
+            $actionData = executeAction($finalActionRoute, $finalActionsDir);
+            
             // Return JSON response
             http_response_code(200);
             header('Content-Type: application/json');
             echo json_encode($actionData);
             exit;
-        }
-
-        // Not found in main directories, check for plugin
-        // Extract potential plugin name (first URL segment)
-        $pathSegments = explode('/', $basePath);
-        $potentialPlugin = $pathSegments[0];
-        $pluginDir = $projectRoot . '/' . $potentialPlugin;
-
-        // Check if plugin directory exists
-        if (is_dir($pluginDir)) {
-            // Build plugin-specific paths
-            // Remove plugin name from path to get the internal route
-            $pluginRoute = count($pathSegments) > 1 ? implode('/', array_slice($pathSegments, 1)) : 'index';
-            
-            $pluginViewsDir = $pluginDir . '/views';
-            $pluginActionsDir = $pluginDir . '/actions';
-            $pluginFilePath = $pluginViewsDir . '/' . $pluginRoute . '.html';
-            $pluginActionFile = $pluginActionsDir . '/' . $pluginRoute . '.php';
-
-            // Check if plugin view exists
-            if (file_exists($pluginFilePath) && is_file($pluginFilePath)) {
-                // Execute plugin action if exists
-                $actionData = executeAction($pluginRoute, $pluginActionsDir);
-
-                // Serve plugin view with action data
-                header('Content-Type: text/html; charset=UTF-8');
-                echo serveFile($pluginFilePath, $actionData, $potentialPlugin);
-                exit;
-            } else if (file_exists($pluginActionFile) && is_file($pluginActionFile)) {
-                // No template but plugin action exists
-                $actionData = executeAction($pluginRoute, $pluginActionsDir);
-
-                // Return JSON response
-                http_response_code(200);
-                header('Content-Type: application/json');
-                echo json_encode($actionData);
-                exit;
-            }
         }
 
         // Not found in main directories or plugin - serve 404
