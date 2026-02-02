@@ -138,13 +138,13 @@ if (!function_exists('process')) {
         /**
          * Serve a file with appropriate headers
          */
-        function serveFile($filePath, $actionData = [])
+        function serveFile($filePath, $actionData = [], $pluginName = null)
         {
             // Read the file content
             $content = file_get_contents($filePath);
 
             // Process includes (without data context - top level)
-            $content = processIncludes($content, dirname($filePath), $actionData);
+            $content = processIncludes($content, dirname($filePath), $actionData, $pluginName);
 
             // Process template variables and loops
             $content = processTemplate($content, $actionData);
@@ -162,7 +162,7 @@ if (!function_exists('process')) {
             $content = processPaginationShortcode($content, $actionData);
 
             // Process layout (after everything else is rendered)
-            $content = processLayout($content, $actionData);
+            $content = processLayout($content, $actionData, $pluginName);
 
             return $content;
         }
@@ -171,11 +171,12 @@ if (!function_exists('process')) {
          * Process layout directive
          * Supports: <!--layout:/default.html--> at the top of the file
          * Supports: <!--layout:/default.html ['key'=>'value','key2'=>'value2']--> with parameters
+         * Supports: <!--layout:/blog/blog.html--> for plugin layouts
          * Layout file should contain <!--layout-content--> placeholder
          * Layout path is relative to layouts/ directory
          * Layout parameters are defaults that can be overwritten by action data
          */
-        function processLayout($content, $actionData = [])
+        function processLayout($content, $actionData = [], $pluginName = null)
         {
             // Pattern to match layout directive at the beginning of content
             // Matches: <!--layout:/path/to/layout.html--> or <!--layout:/path ['params']-->
@@ -197,18 +198,51 @@ if (!function_exists('process')) {
                 // Remove the layout directive from content
                 $viewContent = preg_replace($pattern, '', $content, 1);
                 
-                // Build the full path to layout file
-                // Layout path starts with / and is relative to layouts directory
-                $layoutsDir = dirname(dirname(__FILE__)) . '/layouts';
+                $projectRoot = dirname(dirname(__FILE__));
+                
+                // Check if layout path references a plugin (e.g., /blog/blog.html)
+                $pathParts = explode('/', ltrim($layoutPath, '/'));
+                $firstSegment = $pathParts[0];
+                
+                // Check if first segment is a plugin directory with layouts
+                if (is_dir($projectRoot . '/' . $firstSegment . '/layouts') && count($pathParts) > 1) {
+                    // Plugin layout path: /pluginname/layout.html -> /pluginname/layouts/layout.html
+                    $pluginLayoutsDir = $projectRoot . '/' . $firstSegment . '/layouts';
+                    $remainingPath = '/' . implode('/', array_slice($pathParts, 1));
+                    $fullLayoutPath = $pluginLayoutsDir . $remainingPath;
+                    
+                    if (file_exists($fullLayoutPath) && is_file($fullLayoutPath)) {
+                        // Read the plugin layout file
+                        $layoutContent = file_get_contents($fullLayoutPath);
+                        
+                        // Process includes in the layout
+                        $layoutContent = processIncludes($layoutContent, dirname($fullLayoutPath), $mergedData, $firstSegment);
+                        
+                        // Process template variables, if statements, etc. in the layout
+                        $layoutContent = processIfStatements($layoutContent, $mergedData);
+                        $layoutContent = processVariables($layoutContent, $mergedData);
+                        
+                        // Replace the <!--layout-content--> placeholder with the view content
+                        $finalContent = str_replace('<!--layout-content-->', $viewContent, $layoutContent);
+                        
+                        return $finalContent;
+                    }
+                    
+                    // Plugin layout not found, return error
+                    return "<!-- Layout not found: {$layoutPath} -->\n" . $content;
+                }
+                
+                // Not a plugin layout, check main layouts directory
+                $layoutsDir = $projectRoot . '/layouts';
                 $fullLayoutPath = $layoutsDir . $layoutPath;
                 
-                // Check if layout file exists
+                // Check if layout file exists in main layouts directory
                 if (file_exists($fullLayoutPath) && is_file($fullLayoutPath)) {
                     // Read the layout file
                     $layoutContent = file_get_contents($fullLayoutPath);
                     
                     // Process includes in the layout
-                    $layoutContent = processIncludes($layoutContent, dirname($fullLayoutPath), $mergedData);
+                    $layoutContent = processIncludes($layoutContent, dirname($fullLayoutPath), $mergedData, $pluginName);
                     
                     // Process template variables, if statements, etc. in the layout
                     $layoutContent = processIfStatements($layoutContent, $mergedData);
@@ -218,10 +252,31 @@ if (!function_exists('process')) {
                     $finalContent = str_replace('<!--layout-content-->', $viewContent, $layoutContent);
                     
                     return $finalContent;
-                } else {
-                    // Layout file not found, return original content with comment
-                    return "<!-- Layout not found: {$layoutPath} -->\n" . $content;
+                } else if ($pluginName) {
+                    // Check plugin layouts directory as fallback
+                    $pluginLayoutsDir = $projectRoot . '/' . $pluginName . '/layouts';
+                    $pluginLayoutPath = $pluginLayoutsDir . $layoutPath;
+                    
+                    if (file_exists($pluginLayoutPath) && is_file($pluginLayoutPath)) {
+                        // Read the plugin layout file
+                        $layoutContent = file_get_contents($pluginLayoutPath);
+                        
+                        // Process includes in the layout
+                        $layoutContent = processIncludes($layoutContent, dirname($pluginLayoutPath), $mergedData, $pluginName);
+                        
+                        // Process template variables, if statements, etc. in the layout
+                        $layoutContent = processIfStatements($layoutContent, $mergedData);
+                        $layoutContent = processVariables($layoutContent, $mergedData);
+                        
+                        // Replace the <!--layout-content--> placeholder with the view content
+                        $finalContent = str_replace('<!--layout-content-->', $viewContent, $layoutContent);
+                        
+                        return $finalContent;
+                    }
                 }
+                
+                // Layout file not found, return original content with comment
+                return "<!-- Layout not found: {$layoutPath} -->\n" . $content;
             }
             
             // No layout directive found, return content as-is
@@ -544,7 +599,7 @@ if (!function_exists('process')) {
          * Supports: <!--include:path/to/file.html ['key'=>'value','key2'=>'value2']-->
          * Top-level includes without data context
          */
-        function processIncludes($content, $baseDir, $data = [])
+        function processIncludes($content, $baseDir, $data = [], $pluginName = null)
         {
             // First, protect includes that are inside foreach loops by temporarily replacing them
             $foreachPattern = '/<!--\s*foreach\s*\([^)]+\)\s*-->(.*?)<!--\s*endforeach\s*-->/is';
@@ -567,7 +622,7 @@ if (!function_exists('process')) {
             $depth = 0;
 
             while (preg_match($pattern, $content) && $depth < $maxDepth) {
-                $content = preg_replace_callback($pattern, function ($matches) use ($baseDir, $data) {
+                $content = preg_replace_callback($pattern, function ($matches) use ($baseDir, $data, $pluginName) {
                     $includePath = trim($matches[1]);
                     $paramsString = isset($matches[2]) ? trim($matches[2]) : '';
 
@@ -583,9 +638,22 @@ if (!function_exists('process')) {
                     // Build the full path
                     // If path starts with /, treat as absolute from views directory
                     if (strpos($includePath, '/') === 0) {
-                        // Absolute path from views directory
-                        $viewsDir = dirname(dirname(__FILE__)) . '/views';
-                        $fullPath = $viewsDir . $includePath;
+                        // Check if path starts with a plugin name (e.g., /blog/sections/header.html)
+                        $pathParts = explode('/', ltrim($includePath, '/'));
+                        $firstSegment = $pathParts[0];
+                        $projectRoot = dirname(dirname(__FILE__));
+                        
+                        // Check if first segment is a plugin directory
+                        if (is_dir($projectRoot . '/' . $firstSegment . '/views')) {
+                            // Plugin path: /pluginname/path -> /pluginname/views/path
+                            $pluginViewsDir = $projectRoot . '/' . $firstSegment . '/views';
+                            $remainingPath = '/' . implode('/', array_slice($pathParts, 1));
+                            $fullPath = $pluginViewsDir . $remainingPath;
+                        } else {
+                            // Regular absolute path from main views directory
+                            $viewsDir = $projectRoot . '/views';
+                            $fullPath = $viewsDir . $includePath;
+                        }
                     } else {
                         // Relative path from current directory
                         $fullPath = $baseDir . '/' . $includePath;
@@ -784,7 +852,7 @@ if (!function_exists('process')) {
         $filePath = $contentDir . '/' . $basePath . '.html';
         $actionFile = $actionsDir . '/' . $basePath . '.php';
 
-        // Check if the file exists
+        // Check if the file exists in main directories
         if (file_exists($filePath) && is_file($filePath)) {
             // Execute action if exists and get returned data
             $actionData = executeAction($basePath, $actionsDir);
@@ -803,13 +871,51 @@ if (!function_exists('process')) {
             header('Content-Type: application/json');
             echo json_encode($actionData);
             exit;
-        } else {
-            http_response_code(404);
-            header('Content-Type: text/html; charset=UTF-8');
-            // No matching file or action - serve 404
-            echo serve404($contentDir);
-            exit;
         }
+
+        // Not found in main directories, check for plugin
+        // Extract potential plugin name (first URL segment)
+        $pathSegments = explode('/', $basePath);
+        $potentialPlugin = $pathSegments[0];
+        $pluginDir = $projectRoot . '/' . $potentialPlugin;
+
+        // Check if plugin directory exists
+        if (is_dir($pluginDir)) {
+            // Build plugin-specific paths
+            // Remove plugin name from path to get the internal route
+            $pluginRoute = count($pathSegments) > 1 ? implode('/', array_slice($pathSegments, 1)) : 'index';
+            
+            $pluginViewsDir = $pluginDir . '/views';
+            $pluginActionsDir = $pluginDir . '/actions';
+            $pluginFilePath = $pluginViewsDir . '/' . $pluginRoute . '.html';
+            $pluginActionFile = $pluginActionsDir . '/' . $pluginRoute . '.php';
+
+            // Check if plugin view exists
+            if (file_exists($pluginFilePath) && is_file($pluginFilePath)) {
+                // Execute plugin action if exists
+                $actionData = executeAction($pluginRoute, $pluginActionsDir);
+
+                // Serve plugin view with action data
+                header('Content-Type: text/html; charset=UTF-8');
+                echo serveFile($pluginFilePath, $actionData, $potentialPlugin);
+                exit;
+            } else if (file_exists($pluginActionFile) && is_file($pluginActionFile)) {
+                // No template but plugin action exists
+                $actionData = executeAction($pluginRoute, $pluginActionsDir);
+
+                // Return JSON response
+                http_response_code(200);
+                header('Content-Type: application/json');
+                echo json_encode($actionData);
+                exit;
+            }
+        }
+
+        // Not found in main directories or plugin - serve 404
+        http_response_code(404);
+        header('Content-Type: text/html; charset=UTF-8');
+        echo serve404($contentDir);
+        exit;
     }
 }
 
