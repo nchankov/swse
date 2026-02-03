@@ -900,6 +900,13 @@ if (!function_exists('process')) {
             }
         }
         
+        // Set PLUGIN environment variable if plugin is being used
+        if ($finalPluginName !== null) {
+            $_ENV['PLUGIN'] = $finalPluginName;
+        } else if ($finalActionsDir !== null && strpos($finalActionsDir, '/' . $potentialPlugin . '/actions') !== false) {
+            $_ENV['PLUGIN'] = $potentialPlugin;
+        }
+        
         // Now serve based on what we found
         if ($finalViewFile) {
             // We have a view file - execute action if available and serve view
