@@ -84,6 +84,7 @@ if (file_exists(ROOT_DIR . '/vendor/autoload.php')) {
 if (!function_exists('process')) {
     function process($projectRoot = null)
     {
+        header('Content-Type: text/html; charset=UTF-8');
         /**
          * Execute action class method based on HTTP request method
          */
@@ -906,8 +907,6 @@ if (!function_exists('process')) {
             if ($finalActionFile) {
                 $actionData = executeAction($finalActionRoute, $finalActionsDir);
             }
-            
-            header('Content-Type: text/html; charset=UTF-8');
             echo serveFile($finalViewFile, $actionData, $finalPluginName);
             exit;
         } else if ($finalActionFile) {
@@ -916,14 +915,12 @@ if (!function_exists('process')) {
             
             // Return JSON response
             http_response_code(200);
-            header('Content-Type: application/json');
             echo json_encode($actionData);
             exit;
         }
 
         // Not found in main directories or plugin - serve 404
         http_response_code(404);
-        header('Content-Type: text/html; charset=UTF-8');
         echo serve404($contentDir);
         exit;
     }
