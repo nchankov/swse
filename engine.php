@@ -14,68 +14,73 @@ if (file_exists(ROOT_DIR . '/vendor/autoload.php')) {
 
 /**
  * Load and parse .env file into $_ENV
- * Silently fails if file doesn't exist, but triggers warning on parse errors
+ * @param string $envPath Path to the .env file
+ * @return void
  */
-(function() {
-    $envPath = dirname(__DIR__) . '/.env';
-    
-    if (!file_exists($envPath)) {
-        return; // Silently return if file doesn't exist
-    }
-    
-    $lines = @file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    
-    if ($lines === false) {
-        return; // Silently return if file can't be read
-    }
-    
-    foreach ($lines as $lineNumber => $line) {
-        $line = trim($line);
-        
-        // Skip comments and empty lines
-        if (empty($line) || $line[0] === '#') {
-            continue;
+if (!function_exists('loadEnvFile')) {
+    function loadEnvFile($envPath)
+    {
+        if (!file_exists($envPath)) {
+            return; // Silently return if file doesn't exist
         }
         
-        // Check if line contains '='
-        if (strpos($line, '=') === false) {
-            trigger_error(
-                "Parse error in .env file at line " . ($lineNumber + 1) . ": Missing '=' separator",
-                E_USER_WARNING
-            );
-            continue;
+        $lines = @file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        
+        if ($lines === false) {
+            return; // Silently return if file can't be read
         }
         
-        // Parse key=value pairs
-        list($key, $value) = explode('=', $line, 2);
-        $key = trim($key);
-        $value = trim($value);
-        
-        // Validate key (must not be empty and should be valid variable name)
-        if (empty($key)) {
-            trigger_error(
-                "Parse error in .env file at line " . ($lineNumber + 1) . ": Empty variable name",
-                E_USER_WARNING
-            );
-            continue;
-        }
-        
-        // Remove quotes if present
-        if (strlen($value) > 1) {
-            if (($value[0] === '"' && $value[strlen($value) - 1] === '"') ||
-                ($value[0] === "'" && $value[strlen($value) - 1] === "'")) {
-                $value = substr($value, 1, -1);
+        foreach ($lines as $lineNumber => $line) {
+            $line = trim($line);
+            
+            // Skip comments and empty lines
+            if (empty($line) || $line[0] === '#') {
+                continue;
             }
+            
+            // Check if line contains '='
+            if (strpos($line, '=') === false) {
+                trigger_error(
+                    "Parse error in .env file at line " . ($lineNumber + 1) . ": Missing '=' separator",
+                    E_USER_WARNING
+                );
+                continue;
+            }
+            
+            // Parse key=value pairs
+            list($key, $value) = explode('=', $line, 2);
+            $key = trim($key);
+            $value = trim($value);
+            
+            // Validate key (must not be empty and should be valid variable name)
+            if (empty($key)) {
+                trigger_error(
+                    "Parse error in .env file at line " . ($lineNumber + 1) . ": Empty variable name",
+                    E_USER_WARNING
+                );
+                continue;
+            }
+            
+            // Remove quotes if present
+            if (strlen($value) > 1) {
+                if (($value[0] === '"' && $value[strlen($value) - 1] === '"') ||
+                    ($value[0] === "'" && $value[strlen($value) - 1] === "'")) {
+                    $value = substr($value, 1, -1);
+                }
+            }
+            
+            // Set in $_ENV
+            $_ENV[$key] = $value;
+            
+            // Optionally also set in $_SERVER and putenv for compatibility
+            $_SERVER[$key] = $value;
+            putenv("$key=$value");
         }
-        
-        // Set in $_ENV
-        $_ENV[$key] = $value;
-        
-        // Optionally also set in $_SERVER and putenv for compatibility
-        $_SERVER[$key] = $value;
-        putenv("$key=$value");
     }
-})();
+}
+
+// Load main .env file
+loadEnvFile(dirname(__DIR__) . '/.env');
 
 /**
  * This is the main logic of the engine
@@ -903,8 +908,14 @@ if (!function_exists('process')) {
         // Set PLUGIN environment variable if plugin is being used
         if ($finalPluginName !== null) {
             $_ENV['PLUGIN'] = $finalPluginName;
+            // Load plugin .env file if it exists
+            $pluginEnvPath = $pluginDir . '/.env';
+            loadEnvFile($pluginEnvPath);
         } else if ($finalActionsDir !== null && strpos($finalActionsDir, '/' . $potentialPlugin . '/actions') !== false) {
             $_ENV['PLUGIN'] = $potentialPlugin;
+            // Load plugin .env file if it exists
+            $pluginEnvPath = $pluginDir . '/.env';
+            loadEnvFile($pluginEnvPath);
         }
         
         // Now serve based on what we found
