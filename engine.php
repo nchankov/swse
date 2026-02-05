@@ -641,25 +641,23 @@ if (!function_exists('process')) {
                     // Merge params with action data (action data overwrites include params - include params are defaults)
                     $mergedData = array_merge($includeParams, $data);
 
+                    $projectRoot = dirname(dirname(__FILE__));
+
+                    // Check for plugin syntax: //{plugin}//path (e.g., //contact//form.html)
+                    if (preg_match('#^//([^/]+)//(.+)$#', $includePath, $pluginMatches)) {
+                        $pluginNameFromPath = $pluginMatches[1];
+                        $filePathInPlugin = $pluginMatches[2];
+                        
+                        // Build path to plugin views directory
+                        $pluginViewsDir = $projectRoot . '/' . $pluginNameFromPath . '/views';
+                        $fullPath = $pluginViewsDir . '/' . $filePathInPlugin;
+                    }
                     // Build the full path
                     // If path starts with /, treat as absolute from views directory
-                    if (strpos($includePath, '/') === 0) {
-                        // Check if path starts with a plugin name (e.g., /blog/sections/header.html)
-                        $pathParts = explode('/', ltrim($includePath, '/'));
-                        $firstSegment = $pathParts[0];
-                        $projectRoot = dirname(dirname(__FILE__));
-                        
-                        // Check if first segment is a plugin directory
-                        if (is_dir($projectRoot . '/' . $firstSegment . '/views')) {
-                            // Plugin path: /pluginname/path -> /pluginname/views/path
-                            $pluginViewsDir = $projectRoot . '/' . $firstSegment . '/views';
-                            $remainingPath = '/' . implode('/', array_slice($pathParts, 1));
-                            $fullPath = $pluginViewsDir . $remainingPath;
-                        } else {
-                            // Regular absolute path from main views directory
-                            $viewsDir = $projectRoot . '/views';
-                            $fullPath = $viewsDir . $includePath;
-                        }
+                    else if (strpos($includePath, '/') === 0) {
+                        // Regular absolute path from main views directory
+                        $viewsDir = $projectRoot . '/views';
+                        $fullPath = $viewsDir . $includePath;
                     } else {
                         // Relative path from current directory
                         $fullPath = $baseDir . '/' . $includePath;
@@ -719,11 +717,21 @@ if (!function_exists('process')) {
                 $mergedData = array_merge($includeParams, $loopData);
 
                 // Get the content directory path
-                $contentDir = dirname(dirname(__FILE__)) . '/views';
+                $projectRoot = dirname(dirname(__FILE__));
+                $contentDir = $projectRoot . '/views';
 
+                // Check for plugin syntax: //{plugin}//path (e.g., //contact//form.html)
+                if (preg_match('#^//([^/]+)//(.+)$#', $includePath, $pluginMatches)) {
+                    $pluginNameFromPath = $pluginMatches[1];
+                    $filePathInPlugin = $pluginMatches[2];
+                    
+                    // Build path to plugin views directory
+                    $pluginViewsDir = $projectRoot . '/' . $pluginNameFromPath . '/views';
+                    $fullPath = $pluginViewsDir . '/' . $filePathInPlugin;
+                }
                 // Build the full path
                 // If path starts with /, it's already absolute from views directory
-                if (strpos($includePath, '/') === 0) {
+                else if (strpos($includePath, '/') === 0) {
                     // Absolute path from views directory
                     $fullPath = $contentDir . $includePath;
                 } else {
