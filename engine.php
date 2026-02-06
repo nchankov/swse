@@ -648,6 +648,10 @@ if (!function_exists('process')) {
                         $pluginNameFromPath = $pluginMatches[1];
                         $filePathInPlugin = $pluginMatches[2];
                         
+                        // Load plugin .env file if it exists
+                        $pluginEnvPath = $projectRoot . '/' . $pluginNameFromPath . '/.env';
+                        loadEnvFile($pluginEnvPath);
+                        
                         // Build path to plugin views directory
                         $pluginViewsDir = $projectRoot . '/' . $pluginNameFromPath . '/views';
                         $fullPath = $pluginViewsDir . '/' . $filePathInPlugin;
@@ -724,6 +728,10 @@ if (!function_exists('process')) {
                 if (preg_match('#^//([^/]+)//(.+)$#', $includePath, $pluginMatches)) {
                     $pluginNameFromPath = $pluginMatches[1];
                     $filePathInPlugin = $pluginMatches[2];
+                    
+                    // Load plugin .env file if it exists
+                    $pluginEnvPath = $projectRoot . '/' . $pluginNameFromPath . '/.env';
+                    loadEnvFile($pluginEnvPath);
                     
                     // Build path to plugin views directory
                     $pluginViewsDir = $projectRoot . '/' . $pluginNameFromPath . '/views';
