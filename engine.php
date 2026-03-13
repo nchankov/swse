@@ -673,8 +673,27 @@ if (!function_exists('process')) {
 
                         // Process variables in the included content if data is provided
                         if (!empty($mergedData)) {
+                            // Protect foreach blocks in included content so their inner
+                            // if-statements aren't prematurely evaluated (iteration variables
+                            // like $member[is_owner] don't exist as top-level data keys yet)
+                            $protectedInnerForeach = [];
+                            $innerBlockIndex = 0;
+                            $foreachInnerPattern = '/<!--\s*foreach\s*\([^)]+\)\s*-->(.*?)<!--\s*endforeach\s*-->/is';
+                            $includedContent = preg_replace_callback($foreachInnerPattern, function($m) use (&$protectedInnerForeach, &$innerBlockIndex) {
+                                $ph = "<!--PROTECTED_INCLUDE_FOREACH_{$innerBlockIndex}-->";
+                                $protectedInnerForeach[$innerBlockIndex] = $m[0];
+                                $innerBlockIndex++;
+                                return $ph;
+                            }, $includedContent);
+
                             $includedContent = processIfStatements($includedContent, $mergedData);
                             $includedContent = processVariables($includedContent, $mergedData);
+
+                            // Restore protected foreach blocks
+                            foreach ($protectedInnerForeach as $idx => $block) {
+                                $ph = "<!--PROTECTED_INCLUDE_FOREACH_{$idx}-->";
+                                $includedContent = str_replace($ph, $block, $includedContent);
+                            }
                         }
 
                         return $includedContent;
