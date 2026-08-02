@@ -427,6 +427,82 @@ if (!function_exists('detectPreferredLocale')) {
 }
 
 /**
+ * A plugin name is a single directory name, never a path
+ *
+ * @param string $name
+ * @return bool
+ */
+if (!function_exists('isValidPluginName')) {
+    function isValidPluginName($name)
+    {
+        return (bool) preg_match('/^[a-zA-Z0-9_-]+$/', $name);
+    }
+}
+
+/**
+ * Confirm that an include resolves to a file the templates are allowed to read
+ *
+ * Includes are written by hand but the directive is re-scanned after data has
+ * been interpolated, so the path must be treated as untrusted. Concatenating
+ * "/../" onto the views directory otherwise walks out of it and reads .env,
+ * so containment is checked on the canonical path rather than on the string.
+ *
+ * A readable file lives under a views/ or layouts/ directory, either in the
+ * project or one level down in a plugin - the same shape localeRootOf() uses.
+ *
+ * @param string $fullPath
+ * @param string $projectRoot
+ * @return string|null The canonical path, or null when it is out of bounds
+ */
+if (!function_exists('resolveIncludePath')) {
+    function resolveIncludePath($fullPath, $projectRoot)
+    {
+        $real = realpath($fullPath);
+        $root = realpath($projectRoot);
+
+        if ($real === false || $root === false || !is_file($real)) {
+            return null;
+        }
+
+        if (strpos($real, $root . '/') !== 0) {
+            return null;
+        }
+
+        $relative = substr($real, strlen($root));
+
+        if (!preg_match('#^/(?:[^/]+/)?(?:views|layouts)/#', $relative)) {
+            return null;
+        }
+
+        return $real;
+    }
+}
+
+/**
+ * Decide whether an environment variable may be printed by <!--e("NAME")-->
+ *
+ * .env holds database passwords and API keys next to the site name, so an
+ * unrestricted directive turns any template into a credential dump. Set
+ * ENV_PUBLIC to an explicit comma separated allowlist; without it, names that
+ * read like secrets are refused and everything else is allowed.
+ *
+ * @param string $name
+ * @return bool
+ */
+if (!function_exists('isEnvExposable')) {
+    function isEnvExposable($name)
+    {
+        if (!empty($_ENV['ENV_PUBLIC'])) {
+            $allowed = array_map('trim', explode(',', $_ENV['ENV_PUBLIC']));
+
+            return in_array($name, $allowed, true);
+        }
+
+        return !preg_match('/(PASS|SECRET|TOKEN|KEY|SALT|CREDENTIAL|PRIVATE|SIGNATURE|DSN|^DB_)/i', $name);
+    }
+}
+
+/**
  * Parse include parameters from string
  * Supports: 'key'=>'value','key2'=>'value2'
  * Supports: 'key'=>123 (numeric values without quotes)
@@ -470,7 +546,22 @@ if (!function_exists('parseIncludeParams')) {
 if (!function_exists('process')) {
     function process($projectRoot = null)
     {
+        // Left null, every path below would resolve from the filesystem root
+        // (/views, /actions) instead of from the project
+        if ($projectRoot === null) {
+            $projectRoot = ROOT_DIR;
+        }
+
         header('Content-Type: text/html; charset=UTF-8');
+        header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
+        header('Referrer-Policy: strict-origin-when-cross-origin');
+
+        // A content policy is too site specific to have a useful default, so it
+        // is opt-in: set CSP in .env to send one
+        if (!empty($_ENV['CSP'])) {
+            header('Content-Security-Policy: ' . $_ENV['CSP']);
+        }
         /**
          * Execute action class method based on HTTP request method
          */
@@ -493,20 +584,25 @@ if (!function_exists('process')) {
             $className = ucwords($className);
             $className = str_replace(' ', '', $className);
 
-            // Check if class exists
-            if (!class_exists($className)) {
+            // Check if class exists. Autoloading is off: the class has to come
+            // from the action file just required, not from an unrelated vendor
+            // class that happens to share the name.
+            if (!class_exists($className, false)) {
                 return []; // Class not found, return empty data
             }
 
             // Instantiate the action class
             $action = new $className();
 
-            // Get the request method and build the method name
-            $requestMethod = strtolower($_SERVER['REQUEST_METHOD']);
-            $methodName = $requestMethod;
+            // Get the request method and build the method name. An HTTP method
+            // token may legally contain "_", so an unrestricted verb would
+            // dispatch to things like __construct - only real verbs are routed.
+            $knownMethods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+            $requestMethod = isset($_SERVER['REQUEST_METHOD']) ? strtolower($_SERVER['REQUEST_METHOD']) : '';
+            $methodName = in_array($requestMethod, $knownMethods, true) ? $requestMethod : null;
 
             // Execute the action method if it exists
-            if (method_exists($action, $methodName)) {
+            if ($methodName !== null && method_exists($action, $methodName)) {
                 $result = $action->$methodName();
                 // If result is an array, return it; otherwise return empty array
                 return is_array($result) ? $result : [];
@@ -539,29 +635,23 @@ if (!function_exists('process')) {
             // Process includes (without data context - top level)
             $content = processIncludes($content, dirname($filePath), $actionData, $pluginName);
 
+            // Every shortcode is expanded after includes, so that it works in an
+            // included file, but before data is interpolated. A value rendered
+            // through the raw <!--($var)--> form is emitted verbatim, so running
+            // these afterwards would let a reflected <!--csrf_token--> print the
+            // visitor's session token. Layouts expand their own, in processLayout.
+            $content = processCsrfTokens($content);
+            $content = processFlashMessages($content);
+            $content = processDateShortcodes($content);
+            $content = processPaginationShortcode($content, $actionData);
+            $content = processTranslations($content);
+            $content = processLocaleShortcodes($content);
+
             // Process template variables and loops
             $content = processTemplate($content, $actionData);
 
-            // Process CSRF tokens (after includes so they work in included files)
-            $content = processCsrfTokens($content);
-
-            // Process flash messages (after includes so they work in included files)
-            $content = processFlashMessages($content);
-
-            // Process date shortcodes (after includes so they work in included files)
-            $content = processDateShortcodes($content);
-
-            // Process pagination shortcode (after includes so they work in included files)
-            $content = processPaginationShortcode($content, $actionData);
-
             // Process layout (after everything else is rendered)
             $content = processLayout($content, $actionData, $pluginName);
-
-            // Process translations and locale shortcodes last, so that they
-            // also work inside layouts - which is where the navigation, the
-            // <html lang> attribute and the hreflang tags actually live
-            $content = processTranslations($content);
-            $content = processLocaleShortcodes($content);
 
             return $content;
         }
@@ -616,7 +706,13 @@ if (!function_exists('process')) {
                         
                         // Process includes in the layout
                         $layoutContent = processIncludes($layoutContent, dirname($fullLayoutPath), $mergedData, $firstSegment);
-                        
+
+                        // The navigation, the <html lang> attribute and the
+                        // hreflang tags live here, so the layout expands its own
+                        // translations - before any data reaches it
+                        $layoutContent = processTranslations($layoutContent);
+                        $layoutContent = processLocaleShortcodes($layoutContent);
+
                         // Process template variables, if statements, etc. in the layout
                         $layoutContent = processIfStatements($layoutContent, $mergedData);
                         $layoutContent = processVariables($layoutContent, $mergedData);
@@ -642,7 +738,13 @@ if (!function_exists('process')) {
                     
                     // Process includes in the layout
                     $layoutContent = processIncludes($layoutContent, dirname($fullLayoutPath), $mergedData, $pluginName);
-                    
+
+                    // The navigation, the <html lang> attribute and the hreflang
+                    // tags live here, so the layout expands its own translations
+                    // - before any data reaches it
+                    $layoutContent = processTranslations($layoutContent);
+                    $layoutContent = processLocaleShortcodes($layoutContent);
+
                     // Process template variables, if statements, etc. in the layout
                     $layoutContent = processIfStatements($layoutContent, $mergedData);
                     $layoutContent = processVariables($layoutContent, $mergedData);
@@ -662,7 +764,13 @@ if (!function_exists('process')) {
                         
                         // Process includes in the layout
                         $layoutContent = processIncludes($layoutContent, dirname($pluginLayoutPath), $mergedData, $pluginName);
-                        
+
+                        // The navigation, the <html lang> attribute and the
+                        // hreflang tags live here, so the layout expands its own
+                        // translations - before any data reaches it
+                        $layoutContent = processTranslations($layoutContent);
+                        $layoutContent = processLocaleShortcodes($layoutContent);
+
                         // Process template variables, if statements, etc. in the layout
                         $layoutContent = processIfStatements($layoutContent, $mergedData);
                         $layoutContent = processVariables($layoutContent, $mergedData);
@@ -884,11 +992,11 @@ if (!function_exists('process')) {
             $content = preg_replace_callback('/<!--\s*e\s*\(\s*(["\'])([^"\']+)\1\s*\)\s*-->/i', function ($matches) {
                 $envVarName = $matches[2]; // Environment variable name
 
-                if (isset($_ENV[$envVarName])) {
+                if (isset($_ENV[$envVarName]) && isEnvExposable($envVarName)) {
                     return htmlspecialchars($_ENV[$envVarName], ENT_QUOTES, 'UTF-8');
                 }
 
-                return ''; // Environment variable not found
+                return ''; // Environment variable not found, or not publishable
             }, $content);
 
             // Pattern to match raw (unescaped) array access: <!--($variable[key])--> or <!--($variable["key"])-->
@@ -1008,11 +1116,17 @@ if (!function_exists('process')) {
                     if (preg_match('#^//([^/]+)//(.+)$#', $includePath, $pluginMatches)) {
                         $pluginNameFromPath = $pluginMatches[1];
                         $filePathInPlugin = $pluginMatches[2];
-                        
+
+                        // The name indexes a directory, so reject anything that
+                        // could steer loadEnvFile() at a .env outside the project
+                        if (!isValidPluginName($pluginNameFromPath)) {
+                            return "<!-- Include not found: {$includePath} -->";
+                        }
+
                         // Load plugin .env file if it exists
                         $pluginEnvPath = $projectRoot . '/' . $pluginNameFromPath . '/.env';
                         loadEnvFile($pluginEnvPath);
-                        
+
                         // Build path to plugin views directory
                         $pluginViewsDir = $projectRoot . '/' . $pluginNameFromPath . '/views';
                         $fullPath = $pluginViewsDir . '/' . $filePathInPlugin;
@@ -1033,8 +1147,11 @@ if (!function_exists('process')) {
                     // so relative includes work from inside a translated file.
                     $fullPath = resolveLocalized($fullPath);
 
-                    // Check if file exists
-                    if (file_exists($fullPath) && is_file($fullPath)) {
+                    // Containment check, not just existence: the path is built by
+                    // concatenation and may still walk out of views/ or layouts/
+                    $fullPath = resolveIncludePath($fullPath, $projectRoot);
+
+                    if ($fullPath !== null) {
                         // Read the included file content
                         $includedContent = file_get_contents($fullPath);
 
@@ -1114,11 +1231,17 @@ if (!function_exists('process')) {
                 if (preg_match('#^//([^/]+)//(.+)$#', $includePath, $pluginMatches)) {
                     $pluginNameFromPath = $pluginMatches[1];
                     $filePathInPlugin = $pluginMatches[2];
-                    
+
+                    // The name indexes a directory, so reject anything that
+                    // could steer loadEnvFile() at a .env outside the project
+                    if (!isValidPluginName($pluginNameFromPath)) {
+                        return "<!-- Include not found: {$includePath} -->";
+                    }
+
                     // Load plugin .env file if it exists
                     $pluginEnvPath = $projectRoot . '/' . $pluginNameFromPath . '/.env';
                     loadEnvFile($pluginEnvPath);
-                    
+
                     // Build path to plugin views directory
                     $pluginViewsDir = $projectRoot . '/' . $pluginNameFromPath . '/views';
                     $fullPath = $pluginViewsDir . '/' . $filePathInPlugin;
@@ -1135,8 +1258,11 @@ if (!function_exists('process')) {
 
                 $fullPath = resolveLocalized($fullPath);
 
-                // Check if file exists
-                if (file_exists($fullPath) && is_file($fullPath)) {
+                // Containment check, not just existence: the path is built by
+                // concatenation and may still walk out of views/ or layouts/
+                $fullPath = resolveIncludePath($fullPath, $projectRoot);
+
+                if ($fullPath !== null) {
                     // Read the included file content
                     $includedContent = file_get_contents($fullPath);
 
@@ -1205,7 +1331,25 @@ if (!function_exists('process')) {
         }
 
         //Start the session
-        session_start();
+        if (session_status() === PHP_SESSION_NONE) {
+            // strict_mode makes PHP refuse a session id it did not issue, which
+            // is what stops an attacker fixing a victim's session in advance.
+            // The cookie is script-inaccessible, and https-only when the request
+            // arrived over https, directly or through a proxy.
+            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+
+            ini_set('session.use_strict_mode', '1');
+            ini_set('session.use_only_cookies', '1');
+            ini_set('session.cookie_httponly', '1');
+            ini_set('session.cookie_samesite', 'Lax');
+
+            if ($isHttps) {
+                ini_set('session.cookie_secure', '1');
+            }
+
+            session_start();
+        }
 
         // Get the requested path
         $requestUri = $_SERVER['REQUEST_URI'];
@@ -1363,8 +1507,9 @@ if (!function_exists('process')) {
             loadEnvFile($pluginEnvPath);
         }
         
-        // Now serve based on what we found
-        if ($finalViewFile) {
+        // Now serve based on what we found. A .json route asks for the data
+        // rather than the page, so it skips the view even when one exists.
+        if ($finalViewFile && !$isJsonRequest) {
             // We have a view file - execute action if available and serve view
             $actionData = [];
             if ($finalActionFile) {
@@ -1373,9 +1518,25 @@ if (!function_exists('process')) {
             echo serveFile($finalViewFile, $actionData, $finalPluginName);
             exit;
         } else if ($finalActionFile) {
-            // No view but action exists - execute action only (API endpoint)
+            // No view, or .json was requested - execute action only (API endpoint)
             $actionData = executeAction($finalActionRoute, $finalActionsDir);
-            
+
+            // json_encode leaves < and > alone, so emitting this under the
+            // default text/html makes any reflected value executable markup.
+            // An action that set its own Content-Type keeps it.
+            $contentTypeReplaced = false;
+
+            foreach (headers_list() as $sentHeader) {
+                if (stripos($sentHeader, 'Content-Type:') === 0 && stripos($sentHeader, 'text/html') === false) {
+                    $contentTypeReplaced = true;
+                    break;
+                }
+            }
+
+            if (!$contentTypeReplaced) {
+                header('Content-Type: application/json; charset=UTF-8');
+            }
+
             // Return JSON response
             http_response_code(200);
             echo json_encode($actionData);
@@ -1578,24 +1739,34 @@ if (!function_exists('processPaginationShortcode')) {
             }
             $html = '<div class="' . $paginationClass . '">';
             
-            // Get current URL without page parameter
+            // Get current URL without page parameter. REQUEST_URI is whatever the
+            // client sent and is never validated by the router - under a rewrite
+            // it is not even the route - so every URL built from it is escaped.
             $baseUrl = strtok($_SERVER['REQUEST_URI'], '?');
             $queryParams = $_GET;
             unset($queryParams['page']);
             $queryString = http_build_query($queryParams);
             $separator = $queryString ? '&' : '';
-            
+
+            $pageUrl = function ($page) use ($baseUrl, $queryString, $separator) {
+                return htmlspecialchars(
+                    $baseUrl . '?' . $queryString . $separator . 'page=' . $page,
+                    ENT_QUOTES,
+                    'UTF-8'
+                );
+            };
+
             // First page button
             if ($currentPage > 1) {
-                $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=1" class="first">«</a>';
+                $html .= '<a href="' . $pageUrl(1) . '" class="first">«</a>';
             } else {
                 $html .= '<span class="disabled first">«</span>';
             }
-            
+
             // Previous page button
             if ($currentPage > 1) {
                 $prevPage = $currentPage - 1;
-                $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=' . $prevPage . '" class="prev">‹</a>';
+                $html .= '<a href="' . $pageUrl($prevPage) . '" class="prev">‹</a>';
             } else {
                 $html .= '<span class="disabled prev">‹</span>';
             }
@@ -1626,21 +1797,21 @@ if (!function_exists('processPaginationShortcode')) {
                 if ($i == $currentPage) {
                     $html .= '<span class="current ' . $positionClass . '">' . $i . '</span>';
                 } else {
-                    $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=' . $i . '" class="' . $positionClass . '">' . $i . '</a>';
+                    $html .= '<a href="' . $pageUrl($i) . '" class="' . $positionClass . '">' . $i . '</a>';
                 }
             }
-            
+
             // Next page button
             if ($currentPage < $totalPages) {
                 $nextPage = $currentPage + 1;
-                $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=' . $nextPage . '" class="next">›</a>';
+                $html .= '<a href="' . $pageUrl($nextPage) . '" class="next">›</a>';
             } else {
                 $html .= '<span class="disabled next">›</span>';
             }
-            
+
             // Last page button
             if ($currentPage < $totalPages) {
-                $html .= '<a href="' . $baseUrl . '?' . $queryString . $separator . 'page=' . $totalPages . '" class="last">»</a>';
+                $html .= '<a href="' . $pageUrl($totalPages) . '" class="last">»</a>';
             } else {
                 $html .= '<span class="disabled last">»</span>';
             }
@@ -1713,7 +1884,9 @@ if (!function_exists('verifyCsrf')) {
             }
             $sessionToken = $_SESSION['csrf_token'] ?? '';
 
-            if (!hash_equals($sessionToken, $token)) {
+            // Both sides default to '' and hash_equals('', '') is true, so an
+            // absent token would otherwise validate against an unseeded session
+            if ($sessionToken === '' || !is_string($token) || $token === '' || !hash_equals($sessionToken, $token)) {
                 http_response_code(403);
                 die('CSRF token validation failed');
             }
@@ -1778,6 +1951,10 @@ if (!function_exists('getFlash')) {
 
 /**
  * Get POST data safely
+ *
+ * The value comes back HTML escaped, which makes it safe to print but not safe
+ * to put in a query - use a prepared statement for that, and escape at the
+ * point of output rather than relying on this.
  */
 if (!function_exists('getPost')) {
     function getPost($key, $default = null, $variables = [])
@@ -1785,16 +1962,23 @@ if (!function_exists('getPost')) {
         if (!$variables) {
             $variables = $_POST;
         }
-        $value = $variables[$key] ?? $default;
-        if (!$value) {
+        $value = $variables[$key] ?? null;
+
+        // Only a missing value falls back: "0" and "" are answers, not absences
+        if ($value === null) {
             return $default;
         }
-        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+
+        return is_scalar($value) ? htmlspecialchars($value, ENT_QUOTES, 'UTF-8') : $default;
     }
 }
 
 /**
  * Get GET data safely
+ *
+ * The value comes back HTML escaped, which makes it safe to print but not safe
+ * to put in a query - use a prepared statement for that, and escape at the
+ * point of output rather than relying on this.
  */
 if (!function_exists('getQuery')) {
     function getQuery($key, $default = null, $variables = [])
@@ -1802,10 +1986,13 @@ if (!function_exists('getQuery')) {
         if (!$variables) {
             $variables = $_GET;
         }
-        $value = $variables[$key] ?? $default;
-        if (!$value) {
+        $value = $variables[$key] ?? null;
+
+        // Only a missing value falls back: "0" and "" are answers, not absences
+        if ($value === null) {
             return $default;
         }
-        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+
+        return is_scalar($value) ? htmlspecialchars($value, ENT_QUOTES, 'UTF-8') : $default;
     }
 }
