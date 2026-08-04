@@ -479,30 +479,6 @@ if (!function_exists('resolveIncludePath')) {
 }
 
 /**
- * Decide whether an environment variable may be printed by <!--e("NAME")-->
- *
- * .env holds database passwords and API keys next to the site name, so an
- * unrestricted directive turns any template into a credential dump. Set
- * ENV_PUBLIC to an explicit comma separated allowlist; without it, names that
- * read like secrets are refused and everything else is allowed.
- *
- * @param string $name
- * @return bool
- */
-if (!function_exists('isEnvExposable')) {
-    function isEnvExposable($name)
-    {
-        if (!empty($_ENV['ENV_PUBLIC'])) {
-            $allowed = array_map('trim', explode(',', $_ENV['ENV_PUBLIC']));
-
-            return in_array($name, $allowed, true);
-        }
-
-        return !preg_match('/(PASS|SECRET|TOKEN|KEY|SALT|CREDENTIAL|PRIVATE|SIGNATURE|DSN|^DB_)/i', $name);
-    }
-}
-
-/**
  * Parse include parameters from string
  * Supports: 'key'=>'value','key2'=>'value2'
  * Supports: 'key'=>123 (numeric values without quotes)
@@ -992,11 +968,11 @@ if (!function_exists('process')) {
             $content = preg_replace_callback('/<!--\s*e\s*\(\s*(["\'])([^"\']+)\1\s*\)\s*-->/i', function ($matches) {
                 $envVarName = $matches[2]; // Environment variable name
 
-                if (isset($_ENV[$envVarName]) && isEnvExposable($envVarName)) {
+                if (isset($_ENV[$envVarName])) {
                     return htmlspecialchars($_ENV[$envVarName], ENT_QUOTES, 'UTF-8');
                 }
 
-                return ''; // Environment variable not found, or not publishable
+                return ''; // Environment variable not found
             }, $content);
 
             // Pattern to match raw (unescaped) array access: <!--($variable[key])--> or <!--($variable["key"])-->
